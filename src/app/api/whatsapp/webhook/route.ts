@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { getChatbotConfig } from '@/app/(panel)/dashboard/chatbot/_data-access/get-config';
-import { createNewAppointment } from '@/app/(public)/empresa/[id]/_actions/create-appointment';
-import { getInfoSchedule } from '@/app/(public)/empresa/[id]/_data-access/get-info-schedule';
+import { createNewAppointment } from '@/app/(public)/empresa/[id]/_actions/create-order';
+import { getInfoSchedule } from '@/app/(public)/empresa/[id]/_data-access/get-info-store';
 import { isSlotSequenceAvailable } from '@/app/(public)/empresa/[id]/_components/schedule-utils';
 import OpenAI from 'openai';
 import { revalidatePath } from 'next/cache';

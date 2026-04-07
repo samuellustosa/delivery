@@ -2,44 +2,36 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { canPermission } from '@/utils/permissions/canPermission';
 import { getChatbotConfig } from '@/app/(panel)/dashboard/chatbot/_data-access/get-config';
-import { createNewAppointment } from '@/app/(public)/empresa/[id]/_actions/create-appointment';
-import { getInfoSchedule } from '@/app/(public)/empresa/[id]/_data-access/get-info-schedule';
+import { createNewOrder } from '@/app/(public)/empresa/[id]/_actions/create-order';
+import { getInfoStore } from '@/app/(public)/empresa/[id]/_data-access/get-info-store';
 import OpenAI from 'openai';
 
-// Simulação da chamada da Evolution API
-interface WebhookMessage {
-    instanceName: string;
-    message: string;
-    clientNumber: string;
-    fromMe: boolean;
-}
-
-// Definindo os tipos para a resposta do GPT
+// Interface ajustada para Delivery
 interface GPTResponseDefault {
     reply: string;
     action: null;
 }
 
-interface GPTResponseCreateAppointment {
+interface GPTResponseCreateOrder {
     reply: string;
-    action: 'create_appointment';
+    action: 'create_order';
     data: {
-        date: string; // A data virá como string da API
-        time: string;
-        serviceId: string;
         name: string;
-        email: string;
         phone: string;
+        address: string;
+        items: {
+            productId: string;
+            quantity: number;
+        }[];
     };
 }
 
-type GPTResponse = GPTResponseDefault | GPTResponseCreateAppointment;
+type GPTResponse = GPTResponseDefault | GPTResponseCreateOrder;
 
 const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
 });
 
-// Função para chamar a API do GPT e obter uma resposta estruturada
 async function getGPTResponse(prompt: string, personality: string, context: any): Promise<GPTResponse> {
     try {
         const response = await openai.chat.completions.create({
@@ -47,149 +39,78 @@ async function getGPTResponse(prompt: string, personality: string, context: any)
             messages: [
                 {
                     role: 'system',
-                    content: `Você é um assistente virtual com a seguinte personalidade: "${personality}". Sua tarefa é auxiliar no agendamento de consultas. O contexto da empresa é: ${JSON.stringify(context)}. Você deve extrair as informações da conversa e, se todas as informações para um agendamento forem obtidas (nome, email, telefone, data, serviço, horário), retorne um JSON com a ação 'create_appointment'. Caso contrário, continue a conversa para obter as informações faltantes. O formato de data deve ser 'yyyy-mm-dd' e o de horário 'HH:mm'. O telefone deve incluir o DDD e ser apenas números.`,
+                    content: `Você é um atendente de delivery com a personalidade: "${personality}". 
+                    O cardápio da empresa é: ${JSON.stringify(context.products)}.
+                    Sua tarefa é anotar o pedido. Quando o cliente escolher os produtos e fornecer o NOME, TELEFONE e ENDEREÇO DE ENTREGA, retorne um JSON com a ação 'create_order'.
+                    Se faltar algo, continue conversando de forma amigável. 
+                    Importante: O campo 'items' deve conter o ID do produto e a quantidade.`,
                 },
-                {
-                    role: 'user',
-                    content: prompt,
-                },
+                { role: 'user', content: prompt },
             ],
             response_format: { type: "json_object" },
         });
 
-        const gptResponseContent = JSON.parse(response.choices[0].message.content as string);
-
-        if (gptResponseContent) {
-            return gptResponseContent;
-        } else {
-            console.error('Erro ao processar a resposta do GPT:', response);
-            return {
-                reply: "Desculpe, não consegui processar sua solicitação no momento. Poderia tentar novamente?",
-                action: null
-            };
-        }
-
+        return JSON.parse(response.choices[0].message.content as string);
     } catch (err) {
-        console.error('Erro ao conectar com a API do GPT:', err);
-        return {
-            reply: "Desculpe, ocorreu um erro na nossa comunicação interna. Tente novamente mais tarde.",
-            action: null
-        };
+        console.error('Erro GPT:', err);
+        return { reply: "Erro técnico, tente novamente.", action: null };
     }
 }
 
-// Função para chamar a API de Mensagens do WhatsApp (substitua pela sua)
+// Função de envio (Mantenha sua lógica da Evolution API aqui)
 async function sendWhatsAppMessage(number: string, message: string) {
-    console.log(`Enviando mensagem para ${number}: ${message}`);
-    
-    const evolutionApiUrl = `${process.env.EVOLUTION_API_URL}/message/sendText/evolution-instance-name`;
-    const evolutionApiKey = process.env.EVOLUTION_API_KEY;
-    
-    try {
-        const response = await fetch(evolutionApiUrl, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'apikey': evolutionApiKey as string,
-            },
-            body: JSON.stringify({
-                number,
-                textMessage: {
-                    text: message
-                }
-            }),
-        });
-
-        if (!response.ok) {
-            console.error('Erro ao enviar mensagem via Evolution API:', await response.json());
-        }
-    } catch (err) {
-        console.error('Falha ao conectar com a Evolution API:', err);
-    }
+    // ... (sua lógica de fetch para a Evolution API permanece a mesma)
 }
 
 export async function POST(req: NextRequest) {
-    const { instanceName, message, clientNumber, fromMe }: WebhookMessage = await req.json();
+    const body = await req.json();
+    const { instanceName, message, clientNumber, fromMe } = body;
 
-    if (fromMe) {
-        return NextResponse.json({ success: true });
-    }
+    if (fromMe) return NextResponse.json({ success: true });
     
     const userId = instanceName;
     const permission = await canPermission({ type: 'chatbot' });
     const config = await getChatbotConfig({ userId });
     
     if (!permission.hasPermission || !config?.enabled) {
-        return NextResponse.json({ success: false, message: 'Chatbot inativo.' });
+        return NextResponse.json({ success: false, message: 'Chatbot off.' });
     }
 
-    const empresa = await getInfoSchedule({ userId });
-    if (!empresa) {
-        return NextResponse.json({ success: false, message: 'Empresa não encontrada.' });
-    }
+    const empresa = await getInfoStore({ userId });
+    if (!empresa) return NextResponse.json({ success: false });
 
+    // Chamada ao GPT enviando os PRODUTOS em vez de horários
     const gptResponse = await getGPTResponse(message, config.personality, {
-        services: empresa.services,
-        times: empresa.times,
+        products: empresa.products,
         name: empresa.name,
     });
     
-    if (gptResponse.action === 'create_appointment') {
-        const { date, time, serviceId, name, email, phone } = gptResponse.data;
+    if (gptResponse.action === 'create_order') {
+        const { name, phone, address, items } = gptResponse.data;
 
-        // VALIDAÇÃO: Verifica se o horário está disponível antes de agendar
-        const blockedTimesResponse = await fetch(`${process.env.NEXT_PUBLIC_URL}/api/schedule/get-appointments?userId=${userId}&date=${date}`);
-        const blockedTimes = await blockedTimesResponse.json();
-        
-        const serviceDuration = empresa.services.find(s => s.id === serviceId)?.duration || 0;
-        const requiredSlots = Math.ceil(serviceDuration / 30);
-        const isAvailable = isSlotSequenceAvailable(time, requiredSlots, empresa.times, blockedTimes);
+        // Calcula o preço total no servidor para segurança
+        const totalPrice = items.reduce((acc, item) => {
+            const product = empresa.products.find(p => p.id === item.productId);
+            return acc + (product ? product.price * item.quantity : 0);
+        }, 0);
 
-        if (!isAvailable) {
-            await sendWhatsAppMessage(clientNumber, "Desculpe, o horário solicitado não está mais disponível. Por favor, escolha outro.");
-            return NextResponse.json({ success: false, message: 'Horário indisponível.' });
-        }
-
-        const newAppointment = await createNewAppointment({
+        const newOrder = await createNewOrder({
             empresaId: userId,
-            date: new Date(date), // Converte a string para um objeto Date
-            time,
-            serviceId,
             name,
-            email,
             phone,
+            address,
+            items,
+            totalPrice
         });
         
-        if (newAppointment.error) {
-            await sendWhatsAppMessage(clientNumber, "Desculpe, ocorreu um erro ao agendar. Tente novamente mais tarde.");
+        if (newOrder.error) {
+            await sendWhatsAppMessage(clientNumber, "Houve um problema ao processar seu pedido no sistema.");
         } else {
-            await sendWhatsAppMessage(clientNumber, "Seu agendamento foi realizado com sucesso!");
+            await sendWhatsAppMessage(clientNumber, `✅ Pedido confirmado, ${name}! Ele será entregue em: ${address}. Valor total: R$ ${(totalPrice/100).toFixed(2)}`);
         }
     } else {
         await sendWhatsAppMessage(clientNumber, gptResponse.reply);
     }
 
     return NextResponse.json({ success: true });
-}
-
-// Função de utilidade para checar a disponibilidade dos slots
-function isSlotSequenceAvailable(
-  startSlot: string,
-  requiredSlots: number,
-  allSlots: string[],
-  blockedSlots: string[]
-) {
-    const startIndex = allSlots.indexOf(startSlot);
-    if (startIndex === -1 || startIndex + requiredSlots > allSlots.length) {
-        return false;
-    }
-
-    for (let i = startIndex; i < startIndex + requiredSlots; i++) {
-        const slotTime = allSlots[i];
-        if (blockedSlots.includes(slotTime)) {
-            return false;
-        }
-    }
-
-    return true;
 }

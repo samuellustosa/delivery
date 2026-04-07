@@ -1,334 +1,164 @@
 "use client"
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState } from 'react'
 import Image from "next/image"
 import imgTest from '../../../../../../public/foto1.jpg'
-import { MapPin } from "lucide-react"
+import { MapPin, ShoppingBag, Plus, Minus } from "lucide-react"
 import { Prisma } from "@/generated/prisma"
-import { useAppointmentForm, AppointmentFormData } from './schedule-form'
+import { useForm } from "react-hook-form" // Simplificado para o checkout
 import { Button } from '@/components/ui/button'
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
-import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { formatPhone } from '@/utils/formatPhone'
-import { DateTimePicker } from "./date-picker"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { ScheduleTimeList } from './schedule-time-list'
-import { createNewAppointment } from '../_actions/create-appointment'
+import { formatCurrency } from '@/utils/formatCurrency'
+import { createNewOrder } from '../_actions/create-order' // Nova action
 import { toast } from 'sonner'
 
-type UserWithServiceAndSubscription = Prisma.UserGetPayload<{
+type UserWithProducts = Prisma.UserGetPayload<{
   include: {
-    subscription: true,
-    services: true,
+    products: { include: { category: true } },
   }
 }>
 
-
-interface ScheduleContentProps {
-  empresa: UserWithServiceAndSubscription
+interface StoreContentProps {
+  empresa: UserWithProducts
 }
 
-export interface TimeSlot {
-  time: string;
-  available: boolean;
-}
+export function StoreContent({ empresa }: StoreContentProps) {
+  const [cart, setCart] = useState<{ productId: string; quantity: number; name: string; price: number }[]>([]);
+  const form = useForm({
+      defaultValues: { name: "", phone: "", address: "", paymentMethod: "PIX" }
+  });
 
-export function ScheduleContent({ empresa }: ScheduleContentProps) {
-
-  const form = useAppointmentForm();
-  const { watch } = form;
-
-
-  const selectedDate = watch("date")
-  const selectedServiceId = watch("serviceId")
-
-  const [selectedTime, setSelectedTime] = useState("");
-  const [availableTimeSlots, setAvailableTimeSlots] = useState<TimeSlot[]>([]);
-  const [loadingSlots, setLoadingSlots] = useState(false);
-
-  // Quais os horários bloqueados 01/02/2025 > ["15:00", "18:00"]
-  const [blockedTimes, setBlockedTimes] = useState<string[]>([])
-
-
-  // Função que busca os horários bloqueados (via Fetch HTTP)
-  const fetchBlockedTimes = useCallback(async (date: Date): Promise<string[]> => {
-    setLoadingSlots(true);
-    try {
-      const dateString = date.toISOString().split("T")[0]
-      const response = await fetch(`${process.env.NEXT_PUBLIC_URL}/api/schedule/get-appointments?userId=${empresa.id}&date=${dateString}`)
-
-      if (!response.ok) {
-        console.log('Error fetching appointments:', await response.json());
-        setLoadingSlots(false);
-        return [];
+  const addToCart = (product: any) => {
+    setCart(prev => {
+      const existing = prev.find(item => item.productId === product.id);
+      if (existing) {
+        return prev.map(item => item.productId === product.id ? { ...item, quantity: item.quantity + 1 } : item);
       }
-      
-      const json = await response.json();
-      setLoadingSlots(false);
-      // Garantir que a resposta é um array antes de retornar
-      if (Array.isArray(json)) {
-          return json;
-      }
-      return [];
+      return [...prev, { productId: product.id, quantity: 1, name: product.name, price: product.price }];
+    });
+    toast.success(`${product.name} adicionado!`);
+  };
 
-    } catch (err) {
-      console.log(err)
-      setLoadingSlots(false);
-      return [];
-    }
-  }, [empresa.id])
+  const removeFromCart = (productId: string) => {
+    setCart(prev => prev.filter(item => item.productId !== productId));
+  };
 
+  const totalCart = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
 
-  useEffect(() => {
-
-    if (selectedDate) {
-      fetchBlockedTimes(selectedDate).then((blocked) => {
-        setBlockedTimes(blocked)
-
-        const times = empresa.times || [];
-
-        const finalSlots = times.map((time) => ({
-          time: time,
-          available: !blocked.includes(time)
-        }))
-
-
-        setAvailableTimeSlots(finalSlots)
-
-        // Se o slot atual estiver indisponivel, limpamos a seleção
-        const stillAvailable = finalSlots.find(
-          (slot) => slot.time === selectedTime && slot.available
-        )
-
-        if (!stillAvailable) {
-          setSelectedTime("");
-        }
-
-
-      })
-    }
-
-  }, [selectedDate, empresa.times, fetchBlockedTimes, selectedTime])
-
-
-  async function handleRegisterAppointmnent(formData: AppointmentFormData) {
-    if (!selectedTime) {
+  async function handleFinishOrder(values: any) {
+    if (cart.length === 0) {
+      toast.error("Seu carrinho está vazio!");
       return;
     }
 
-    const response = await createNewAppointment({
-      name: formData.name,
-      email: formData.email,
-      phone: formData.phone,
-      time: selectedTime,
-      date: formData.date,
-      serviceId: formData.serviceId,
+    const response = await createNewOrder({
+      ...values,
+      items: cart,
+      totalPrice: totalCart,
       empresaId: empresa.id
-    })
+    });
 
     if (response.error) {
-      toast.error(response.error)
+      toast.error(response.error);
       return;
     }
 
-    toast.success("Consulta agendada com sucesso!")
+    toast.success("Pedido realizado com sucesso!");
+    setCart([]);
     form.reset();
-    setSelectedTime("")
-
   }
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-screen flex flex-col bg-gray-50 pb-20">
       <div className="h-32 bg-emerald-500" />
 
-      <section className="contianer mx-auto px-4 -mt-16">
-        <div className="max-w-2xl mx-auto">
-          <article className="flex flex-col items-center">
-            <div className="relative w-48 h-48 rounded-full overflow-hidden border-4 border-white mb-8">
+      <section className="container mx-auto px-4 -mt-16">
+        <div className="max-w-4xl mx-auto">
+          <article className="flex flex-col items-center bg-white p-6 rounded-lg shadow-sm border">
+            <div className="relative w-32 h-32 rounded-full overflow-hidden border-4 border-white -mt-20 shadow-md mb-4">
               <Image
                 src={empresa.image ? empresa.image : imgTest}
-                alt="Foto da empresa"
+                alt={empresa.name || "Loja"}
                 className="object-cover"
                 fill
               />
             </div>
-
-            <h1 className="text-2xl font-bold mb-2">
-              {empresa.name}
-            </h1>
-            <div className="flex items-center gap-1">
-              <MapPin className="w-5 h-5" />
-              <span>
-                {empresa.address ? empresa.address : "Endereço não informado"}
-              </span>
+            <h1 className="text-2xl font-bold">{empresa.name}</h1>
+            <div className="flex items-center gap-1 text-gray-500 mt-2">
+              <MapPin className="w-4 h-4" />
+              <span className="text-sm">{empresa.address || "Endereço não informado"}</span>
             </div>
           </article>
 
+          {/* Listagem de Produtos */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-8">
+            <div className="space-y-6">
+              <h2 className="text-xl font-bold flex items-center gap-2">
+                <ShoppingBag className="w-5 h-5 text-emerald-500" /> Nosso Cardápio
+              </h2>
+              {empresa.products.map((product) => (
+                <div key={product.id} className="bg-white p-4 rounded-lg border flex justify-between items-center shadow-sm">
+                  <div>
+                    <h3 className="font-bold">{product.name}</h3>
+                    <p className="text-sm text-gray-500 line-clamp-2">{product.description}</p>
+                    <p className="text-emerald-600 font-bold mt-1">{formatCurrency(product.price / 100)}</p>
+                  </div>
+                  <Button size="sm" onClick={() => addToCart(product)} className="bg-emerald-500">
+                    <Plus className="w-4 h-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+
+            {/* Carrinho e Checkout */}
+            <div className="bg-white p-6 rounded-lg border shadow-sm h-fit sticky top-4">
+              <h2 className="text-xl font-bold mb-4">Finalizar Pedido</h2>
+              
+              {cart.length > 0 ? (
+                <div className="mb-6 space-y-2">
+                   {cart.map(item => (
+                     <div key={item.productId} className="flex justify-between text-sm border-b pb-1">
+                       <span>{item.quantity}x {item.name}</span>
+                       <div className="flex items-center gap-2">
+                         <span>{formatCurrency((item.price * item.quantity) / 100)}</span>
+                         <button onClick={() => removeFromCart(item.productId)} className="text-red-500">
+                            <Minus className="w-3 h-3" />
+                         </button>
+                       </div>
+                     </div>
+                   ))}
+                   <div className="pt-2 font-bold flex justify-between text-lg">
+                      <span>Total:</span>
+                      <span>{formatCurrency(totalCart / 100)}</span>
+                   </div>
+                </div>
+              ) : (
+                <p className="text-gray-400 text-center py-4">Seu carrinho está vazio.</p>
+              )}
+
+              <Form {...form}>
+                <form onSubmit={form.handleSubmit(handleFinishOrder)} className="space-y-4">
+                  <FormField control={form.control} name="name" render={({ field }) => (
+                    <FormItem><Input placeholder="Seu nome" {...field} /></FormItem>
+                  )} />
+                  <FormField control={form.control} name="phone" render={({ field }) => (
+                    <FormItem><Input placeholder="Telefone" {...field} onChange={e => field.onChange(formatPhone(e.target.value))} /></FormItem>
+                  )} />
+                  <FormField control={form.control} name="address" render={({ field }) => (
+                    <FormItem><Input placeholder="Endereço completo de entrega" {...field} /></FormItem>
+                  )} />
+                  
+                  <Button type="submit" className="w-full bg-emerald-500" disabled={cart.length === 0}>
+                    Enviar Pedido
+                  </Button>
+                </form>
+              </Form>
+            </div>
+          </div>
         </div>
       </section>
-
-
-      <section className="max-w-2xl mx-auto w-full mt-6">
-        {/* Formulário de agendamento */}
-        <Form {...form}>
-          <form
-            onSubmit={form.handleSubmit(handleRegisterAppointmnent)}
-            className="mx-2 space-y-6 bg-white p-6 border rounded-md shadow-sm"
-          >
-
-            <FormField
-              control={form.control}
-              name="name"
-              render={({ field }) => (
-                <FormItem className="my-2">
-                  <FormLabel className="font-semibold">Nome completo:</FormLabel>
-                  <FormControl>
-                    <Input
-                      id="name"
-                      placeholder="Digite seu nome completo..."
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="email"
-              render={({ field }) => (
-                <FormItem className="my-2">
-                  <FormLabel className="font-semibold">Email:</FormLabel>
-                  <FormControl>
-                    <Input
-                      id="email"
-                      placeholder="Digite seu email..."
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="phone"
-              render={({ field }) => (
-                <FormItem className="my-2">
-                  <FormLabel className="font-semibold">Telefone:</FormLabel>
-                  <FormControl>
-                    <Input
-                      {...field}
-                      id="phone"
-                      placeholder="(XX) XXXXX-XXXX"
-                      onChange={(e) => {
-                        const formattedValue = formatPhone(e.target.value)
-                        field.onChange(formattedValue)
-                      }}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="date"
-              render={({ field }) => (
-                <FormItem className="flex items-center gap-2 space-y-1">
-                  <FormLabel className="font-semibold">Data do agendamento:</FormLabel>
-                  <FormControl>
-                    <DateTimePicker
-                      initialDate={new Date()}
-                      className="w-full rounded border p-2"
-                      onChange={(date) => {
-                        if (date) {
-                          field.onChange(date)
-                          setSelectedTime("")
-                        }
-                      }}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="serviceId"
-              render={({ field }) => (
-                <FormItem className="">
-                  <FormLabel className="font-semibold">Selecione o serviço:</FormLabel>
-                  <FormControl>
-                    <Select onValueChange={(value) => {
-                      field.onChange(value)
-                      setSelectedTime("")
-                    }}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Selecione um serviço" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {empresa.services.map((service) => (
-                          <SelectItem key={service.id} value={service.id}>
-                            {service.name} - {Math.floor(service.duration / 60)}h {service.duration % 60}min
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            {selectedServiceId && (
-              <div className='space-y-2'>
-                <Label className="font-semibold">Horários disponíveis:</Label>
-                <div className='bg-gray-100 p-4 rounded-lg'>
-                  {loadingSlots ? (
-                    <p>Carregando horários...</p>
-                  ) : availableTimeSlots.length === 0 ? (
-                    <p>Nenhum horário disponível</p>
-                  ) : (
-                    <ScheduleTimeList
-                      onSelectTime={(time) => setSelectedTime(time)}
-                      empresaTimes={empresa.times}
-                      blockedTimes={blockedTimes}
-                      availableTimeSlots={availableTimeSlots}
-                      selectedTime={selectedTime}
-                      selectedDate={selectedDate}
-                      requiredSlots={
-                        empresa.services.find(service => service.id === selectedServiceId) ? Math.ceil(empresa.services.find(service => service.id === selectedServiceId)!.duration / 30) : 1
-                      }
-                    />
-                  )}
-                </div>
-              </div>
-            )}
-
-            {empresa.status ? (
-              <Button
-                type="submit"
-                className="w-full bg-emerald-500 hover:bg-emerald-400"
-                disabled={!watch("name") || !watch("email") || !watch("phone") || !watch("date")}
-              >
-                Realizar agendamento
-              </Button>
-            ) : (
-              <p className="bg-red-500 text-white text-center px-4 py-2 rounded-md">
-                O estabelecimento está fechada nesse momento.
-              </p>
-            )}
-
-          </form>
-        </Form>
-      </section>
-
     </div>
   )
 }

@@ -2,7 +2,11 @@
 
 import prisma from "@/lib/prisma"
 
-export async function getTimesClinic({ userId }: { userId: string }) {
+/**
+ * Busca o horário de funcionamento da loja.
+ * No delivery, isso pode ser usado para mostrar ao cliente se a loja está operando.
+ */
+export async function getStoreOperatingHours({ userId }: { userId: string }) {
 
   if (!userId) {
     return {
@@ -12,14 +16,14 @@ export async function getTimesClinic({ userId }: { userId: string }) {
   }
 
   try {
-
+    // Busca os dados do usuário (Dono da loja)
     const user = await prisma.user.findFirst({
       where: {
         id: userId
       },
       select: {
         id: true,
-        times: true,
+        times: true, // Mantemos o campo 'times' para representar o horário de operação
       }
     })
 
@@ -31,16 +35,15 @@ export async function getTimesClinic({ userId }: { userId: string }) {
     }
 
     return {
-      times: user.times,
+      times: user.times, // Retorna a lista de horas em que o delivery aceita pedidos
       userId: user.id
     }
 
   } catch (err) {
-    console.log(err);
+    console.log("Erro ao buscar horários da loja:", err);
     return {
       times: [],
       userId: "",
     }
   }
-
 }

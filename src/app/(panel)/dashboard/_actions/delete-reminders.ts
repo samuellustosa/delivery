@@ -1,42 +1,44 @@
 "use server"
 
 import prisma from  "@/lib/prisma"
-import { Schema, z } from 'zod'
+import { z } from 'zod'
 import { revalidatePath } from 'next/cache'
 
+// Atualizado para refletir que estamos lidando com uma anotação/lembrete da loja
 const formSchema = z.object({
-    reminderId: z.string( { errorMap: () => ({message: "O id do lembrete é obrigatório"})}).min(1, "O id do lembrete é obrigatório")
+    reminderId: z.string({ 
+        errorMap: () => ({ message: "O id da anotação é obrigatório" }) 
+    }).min(1, "O id da anotação é obrigatório")
 })
 
 type FormSchema = z.infer<typeof formSchema>
 
-export async function deleteReminder(formData: FormSchema){
-
-
+export async function deleteReminder(formData: FormSchema) {
     const schema = formSchema.safeParse(formData)
 
-    if(!schema.success){
-        return{
+    if (!schema.success) {
+        return {
             error: schema.error.issues[0].message
-            
         }
     }
 
-    try{
-
+    try {
+        // Mantendo o modelo 'reminder' do seu banco de dados atual
         await prisma.reminder.delete({
-            where:{
-                id:  formData.reminderId
+            where: {
+                id: formData.reminderId
             }
         })
 
         revalidatePath("/dashboard")
 
-        return{
-            data: "Lembrete deletado com sucesso!"
+        return {
+            data: "Anotação removida com sucesso!"
         }
 
-    }catch(err){
-        error: "Não foi possivel deletar o lembrete."
+    } catch (err) {
+        return {
+            error: "Não foi possível remover a anotação."
+        }
     }
 }

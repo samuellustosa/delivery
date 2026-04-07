@@ -1,56 +1,36 @@
-
-export function isToday(date: Date) {
-  const now = new Date();
-
-  return (
-    date.getFullYear() === now.getFullYear() &&
-    date.getMonth() === now.getMonth() &&
-    date.getDate() === now.getDate()
-  )
-}
-
+// src/app/(public)/empresa/[id]/_components/store-utils.ts
 
 /**
- * Verificar se determinado slot já passou.
+ * Verifica se a loja está dentro do horário de funcionamento para aceitar pedidos.
+ * Substitui a lógica de 'isSlotInThePast' para uma visão de turno.
  */
-export function isSlotInThePast(slotTime: string) {
-  const [slotHour, slotMinute] = slotTime.split(":").map(Number)
+export function isStoreOpen(operatingHours: string[]) {
+  if (!operatingHours || operatingHours.length === 0) return false;
 
-  const now = new Date()
-  const currentHour = now.getHours();
-  const currentMinute = now.getMinutes();
+  const now = new Date();
+  const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
 
-  if (slotHour < currentHour) {
-    return true; // true quer dize que a hora já passou
-  } else if (slotHour === currentHour && slotMinute <= currentMinute) {
-    return true;
-  }
+  // Verifica se o horário atual está entre o primeiro e o último slot cadastrado
+  const openingTime = operatingHours[0];
+  const closingTime = operatingHours[operatingHours.length - 1];
 
-  return false;
-
+  return currentTime >= openingTime && currentTime <= closingTime;
 }
 
+/**
+ * Calcula o valor total do carrinho (útil para o checkout).
+ */
+export function calculateCartTotal(items: { price: number; quantity: number }[]) {
+  return items.reduce((acc, item) => acc + (item.price * item.quantity), 0);
+}
 
-export function isSlotSequenceAvailable(
-  startSlot: string, //> Primeiro horario disponivel
-  requiredSlots: number, //> Quantidade de slots necessários
-  allSlots: string[], //> Todos horarios da clinica
-  blockedSlots: string[] //> Horarios bloqueados
-) {
-
-  const startIndex = allSlots.indexOf(startSlot)
-  if (startIndex === -1 || startIndex + requiredSlots > allSlots.length) {
-    return false;
-  }
-
-
-  for (let i = startIndex; i < startIndex + requiredSlots; i++) {
-    const slotTime = allSlots[i]
-
-    if (blockedSlots.includes(slotTime)) {
-      return false;
-    }
-  }
-
-  return true;
+/**
+ * Formata centavos para Real (Ex: 1000 -> "R$ 10,00")
+ * Importante pois seu schema usa Int para preços.
+ */
+export function formatCentsToReal(cents: number) {
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+  }).format(cents / 100);
 }
