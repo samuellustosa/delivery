@@ -1,8 +1,5 @@
-// samuellustosa/odontopro/prisma/schema.prisma
-
 generator client {
   provider = "prisma-client-js"
-  output   = "../src/generated/prisma"
 }
 
 datasource db {
@@ -10,240 +7,99 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// --- ENUMS ---
-
-enum Plan {
-  BASIC
-  PROFESSIONAL
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  password      String?
+  image         String?
+  companies     Company[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 }
 
-enum ConnectionStatus {
-  CONNECTED
-  DISCONNECTED
-  PENDING
-}
+model Company {
+  id            String    @id @default(cuid())
+  name          String
+  slug          String    @unique // Ex: meu-delivery
+  imageUrl      String?
+  description   String?
+  phone         String?
+  address       String?
+  
+  // Horários de Funcionamento
+  openTime      String?   @default("08:00")
+  closeTime     String?   @default("22:00")
 
-// Novos status para a jornada de Delivery
-enum OrderStatus {
-  PENDING
-  PREPARING
-  OUT_FOR_DELIVERY
-  DELIVERED
-  CANCELED
-}
+  userId        String
+  user          User      @relation(fields: [userId], references: [id])
+  
+  categories    Category[]
+  products      Product[]
+  orders        Order[]
 
-// --- MODELOS DE DELIVERY ---
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
 
 model Category {
-  id        String    @id @default(uuid())
+  id        String    @id @default(cuid())
   name      String
-  
-  // Relacionamento com a Loja (User)
-  userId    String
-  user      User      @relation(fields: [userId], references: [id])
-  
+  companyId String
+  company   Company   @relation(fields: [companyId], references: [id])
   products  Product[]
-
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
 }
 
 model Product {
-  id          String   @id @default(uuid())
+  id          String    @id @default(cuid())
   name        String
   description String?
-  price       Int      // Preço em centavos (ex: 1000 = R$ 10,00)
-  image       String?
-  status      Boolean  @default(true) // Ativo/Inativo no menu
-
+  price       Float
+  imageUrl    String?
+  isActive    Boolean   @default(true)
+  
   categoryId  String
-  category    Category @relation(fields: [categoryId], references: [id])
-
-  userId      String
-  user        User     @relation(fields: [userId], references: [id])
+  category    Category  @relation(fields: [categoryId], references: [id])
+  
+  companyId   String
+  company     Company   @relation(fields: [companyId], references: [id])
 
   orderItems  OrderItem[]
-
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
 }
 
 model Order {
-  id            String      @id @default(uuid())
-  totalPrice    Int
+  id            String      @id @default(cuid())
+  displayId     Int         @default(autoincrement()) // Número do pedido simples (ex: #101)
   status        OrderStatus @default(PENDING)
-  deliveryFee   Int         @default(0)
-  address       String      // Endereço de entrega capturado pelo chatbot ou checkout
+  totalValue    Float
+  customerName  String
+  customerPhone String
+  address       String
+  paymentMethod String      // Ex: Pix, Cartão, Dinheiro
   
-  // O Client continua sendo quem compra
-  clientId      String
-  client        Client      @relation(fields: [clientId], references: [id])
-
-  // O User é o dono do nicho (Pizzaria, Loja, etc)
-  userId        String
-  user          User        @relation(fields: [userId], references: [id])
-
+  companyId     String
+  company       Company     @relation(fields: [companyId], references: [id])
+  
   items         OrderItem[]
-
   createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
 }
 
 model OrderItem {
-  id        String  @id @default(uuid())
+  id        String  @id @default(cuid())
   quantity  Int
-  price     Int     // Preço unitário no momento da compra (histórico)
-
+  price     Float   // Preço no momento da compra
+  
   orderId   String
   order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-
+  
   productId String
   product   Product @relation(fields: [productId], references: [id])
 }
 
-// --- MODELOS ORIGINAIS ADAPTADOS ---
-
-model User {
-  id                 String   @id @default(cuid())
-  name               String?
-  email              String   @unique
-  emailVerified      DateTime?
-  image              String?
-  address            String?  @default("")
-  phone              String?  @default("")
-  status             Boolean  @default(true)
-  timezone           String?
-  stripe_customer_id String?
-  
-  // Configurações do nicho
-  chatbotConfig      ChatbotConfig?
-  subscription       Subscription?
-  
-  // Relacionamentos Delivery
-  categories         Category[]
-  products           Product[]
-  orders             Order[]
-  
-  // Mantidos do sistema anterior
-  clients            Client[]
-  reminders          Reminder[]
-  clientNotes        ClientNote[]
-
-  accounts           Account[]
-  sessions           Session[]
-  Authenticator      Authenticator[]
-
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
-}
-
-model Client {
-  id                String   @id @default(uuid())
-  name              String
-  email             String
-  phone             String
-  orders            Order[]    // Mudou de appointments para orders
-  notes             ClientNote[]
-  conversationState String?
-  
-  userId            String
-  user              User     @relation(fields: [userId], references: [id])
-
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-
-  @@unique([email, userId], map: "Client_email_key")
-}
-
-// Modelos auxiliares mantidos conforme o original
-model ClientNote {
-  id              String   @id @default(uuid())
-  content         String
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  clientId        String
-  client          Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  userId          String
-  user            User     @relation(fields: [userId], references: [id])
-}
-
-model Reminder {
-  id          String   @id @default(uuid())
-  description String
-  userId      String
-  user        User     @relation(fields: [userId], references: [id])
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-}
-
-model Subscription {
-  id          String   @id @default(uuid())
-  status      String
-  plan        Plan
-  priceid     String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  userId      String   @unique
-  user        User     @relation(fields: [userId], references: [id])
-}
-
-model ChatbotConfig {
-  id                String           @id @default(uuid())
-  name              String           @default("Assistente Virtual")
-  personality       String           @default("Gentil, amigavel, educado, profissional")
-  enabled           Boolean          @default(true)
-  qrCodeUrl         String?
-  connectionStatus  ConnectionStatus @default(DISCONNECTED)
-  lastMessageId     String?
-  userId            String           @unique
-  user              User             @relation(fields: [userId], references: [id])
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
-}
-
-model Account {
-  userId            String
-  type              String
-  provider          String
-  providerAccountId String
-  refresh_token     String?
-  access_token      String?
-  expires_at        Int?
-  token_type        String?
-  scope             String?
-  id_token          String?
-  session_state     String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  @@id([provider, providerAccountId])
-}
-
-model Session {
-  sessionToken String   @unique
-  userId       String
-  expires      DateTime
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-}
-
-model VerificationToken {
-  identifier String
-  token      String
-  expires    DateTime
-  @@id([identifier, token])
-}
-
-model Authenticator {
-  credentialID         String  @unique
-  userId               String
-  providerAccountId    String
-  credentialPublicKey  String
-  counter              Int
-  credentialDeviceType String
-  credentialBackedUp   Boolean
-  transports           String?
-  user                 User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  @@id([userId, credentialID])
+enum OrderStatus {
+  PENDING
+  PREPARING
+  SHIPPED
+  DELIVERED
+  CANCELLED
 }
